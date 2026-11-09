@@ -34,6 +34,7 @@
 #include "tlv8.h"
 
 #include "rtsp_events.h"
+#include "nowplaying_forward.h"
 #include "dacp_client.h"
 
 static const char *TAG = "rtsp_handlers";
@@ -1613,6 +1614,7 @@ static void handle_set_parameter(int socket, rtsp_conn_t *conn,
     // Artwork - log and flag in metadata
     ESP_LOGI(TAG, "Received artwork: %s (%zu bytes)", req->content_type,
              body_len);
+    nowplaying_forward_art(req->content_type, body, body_len);
     event_data.metadata.has_artwork = true;
     has_metadata = true;
 #else

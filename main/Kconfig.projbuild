@@ -467,6 +467,23 @@ menu "Airplay ESP Configuration"
             help
                 Receive cover-art images. Enable it only if you have a display
                 cabable of and want album art.
+
+        config NOWPLAYING_FORWARD_URL
+            string "Now-playing forward URL (default)"
+            default ""
+            help
+                Base URL of a now-playing receiver such as Signinator, e.g.
+                http://192.168.1.10:8080. Playback state and track info are
+                POSTed to <url>/api/nowplaying and, when cover art reception
+                is enabled above, the art to <url>/api/nowplaying/art. Empty =
+                off. Can be changed on the device's web page (stored in NVS).
+
+        config NOWPLAYING_ART_MAX_KB
+            int "Largest cover-art image to forward (KB)"
+            default 256
+            range 16 2048
+            help
+                Larger images are not forwarded. Uses PSRAM when available.
     endmenu
 
     menu "Button Configuration"

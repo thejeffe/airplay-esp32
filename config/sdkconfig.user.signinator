@@ -1,0 +1,4 @@
+# Signinator album art: receive cover art and forward it (plus track info) to Signinator.
+CONFIG_ENABLE_AIRPLAY_ARTWORK=y
+CONFIG_NOWPLAYING_FORWARD_URL="http://192.168.215.68:8080"
+CONFIG_NOWPLAYING_ART_MAX_KB=256

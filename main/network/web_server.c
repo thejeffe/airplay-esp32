@@ -302,6 +302,105 @@ static esp_err_t wifi_config_handler(httpd_req_t *req) {
   return ESP_OK;
 }
 
+// GET/POST /api/volume: the AirPlay volume of the current session, in AirPlay
+// dB (0 = max, -30 = quietest, -144 = mute). Lets an AirPlay relay such as
+// Signinator pass the phone's volume slider through to this speaker, instead
+// of scaling the audio itself. POST {"db": -12.5}.
+static esp_err_t volume_get_handler(httpd_req_t *req) {
+  float db = 0.0f;
+  settings_get_volume(&db);
+  char out[48];
+  snprintf(out, sizeof(out), "{\"db\":%.2f}", (double)db);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+static esp_err_t volume_post_handler(httpd_req_t *req) {
+  char content[64];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    httpd_resp_send_500(req);
+    return ESP_FAIL;
+  }
+  content[ret] = '\0';
+  cJSON *json = cJSON_Parse(content);
+  cJSON *db_json = json ? cJSON_GetObjectItem(json, "db") : NULL;
+  if (!db_json || !cJSON_IsNumber(db_json)) {
+    cJSON_Delete(json);
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Send {\"db\": -30..0}");
+    return ESP_FAIL;
+  }
+  float db = (float)cJSON_GetNumberValue(db_json);
+  cJSON_Delete(json);
+  if (db > 0.0f) {
+    db = 0.0f;
+  }
+  if (db < -30.0f) {
+    db = -144.0f; // AirPlay mute
+  }
+  airplay_set_volume(db);
+  ESP_LOGI(TAG, "Volume set over HTTP: %.2f dB", (double)db);
+  char out[48];
+  snprintf(out, sizeof(out), "{\"success\":true,\"db\":%.2f}", (double)db);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// GET/POST /api/nowplaying/url: where to forward now-playing info + cover art
+// (e.g. Signinator). POST {"url": "http://host:8080"}; empty string = off.
+static esp_err_t nowplaying_url_get_handler(httpd_req_t *req) {
+  char url[SETTINGS_NOWPLAYING_URL_MAX + 1];
+  settings_get_nowplaying_url(url, sizeof(url));
+  cJSON *response = cJSON_CreateObject();
+  cJSON_AddStringToObject(response, "url", url);
+#ifdef CONFIG_ENABLE_AIRPLAY_ARTWORK
+  cJSON_AddBoolToObject(response, "artwork", true);
+#else
+  cJSON_AddBoolToObject(response, "artwork", false);
+#endif
+  char *json_str = cJSON_PrintUnformatted(response);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
+  free(json_str);
+  cJSON_Delete(response);
+  return ESP_OK;
+}
+
+static esp_err_t nowplaying_url_post_handler(httpd_req_t *req) {
+  char content[256];
+  int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+  if (ret <= 0) {
+    httpd_resp_send_500(req);
+    return ESP_FAIL;
+  }
+  content[ret] = '\0';
+  cJSON *json = cJSON_Parse(content);
+  if (!json) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+    return ESP_FAIL;
+  }
+  cJSON *url_json = cJSON_GetObjectItem(json, "url");
+  cJSON *response = cJSON_CreateObject();
+  esp_err_t err = ESP_ERR_INVALID_ARG;
+  if (url_json && cJSON_IsString(url_json)) {
+    err = settings_set_nowplaying_url(cJSON_GetStringValue(url_json));
+  }
+  cJSON_AddBoolToObject(response, "success", err == ESP_OK);
+  if (err != ESP_OK) {
+    cJSON_AddStringToObject(response, "error",
+                            "Use http://host:port (or leave empty for off)");
+  }
+  char *json_str = cJSON_PrintUnformatted(response);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
+  free(json_str);
+  cJSON_Delete(json);
+  cJSON_Delete(response);
+  return ESP_OK;
+}
+
 static esp_err_t device_name_handler(httpd_req_t *req) {
   char content[256];
   int ret = httpd_req_recv(req, content, sizeof(content) - 1);
@@ -1308,6 +1407,8 @@ esp_err_t web_server_start(uint16_t port) {
   config.lru_purge_enable = true; // Reclaim stale sockets when all are in use
   config.max_uri_handlers =
       30; // Room for captive portal + EQ + speedtest + brightness + channel
+  config.max_uri_handlers += 2; // now-playing URL get/post
+  config.max_uri_handlers += 2; // volume get/post
 #ifdef DAC_HAS_SUB_OFFSET
   config.max_uri_handlers += 2; // sub level get/post
 #endif
@@ -1371,6 +1472,25 @@ esp_err_t web_server_start(uint16_t port) {
                                  .method = HTTP_POST,
                                  .handler = device_name_handler};
   httpd_register_uri_handler(s_server, &device_name_uri);
+
+  httpd_uri_t volume_get_uri = {
+      .uri = "/api/volume", .method = HTTP_GET, .handler = volume_get_handler};
+  httpd_register_uri_handler(s_server, &volume_get_uri);
+
+  httpd_uri_t volume_post_uri = {.uri = "/api/volume",
+                                 .method = HTTP_POST,
+                                 .handler = volume_post_handler};
+  httpd_register_uri_handler(s_server, &volume_post_uri);
+
+  httpd_uri_t np_url_get_uri = {.uri = "/api/nowplaying/url",
+                                .method = HTTP_GET,
+                                .handler = nowplaying_url_get_handler};
+  httpd_register_uri_handler(s_server, &np_url_get_uri);
+
+  httpd_uri_t np_url_post_uri = {.uri = "/api/nowplaying/url",
+                                 .method = HTTP_POST,
+                                 .handler = nowplaying_url_post_handler};
+  httpd_register_uri_handler(s_server, &np_url_post_uri);
 
   httpd_uri_t led_brightness_get_uri = {.uri = "/api/led/brightness",
                                         .method = HTTP_GET,

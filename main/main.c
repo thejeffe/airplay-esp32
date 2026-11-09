@@ -13,6 +13,7 @@
 #include "ptp_clock.h"
 #include "rtsp_server.h"
 #include "settings.h"
+#include "nowplaying_forward.h"
 #include "web_server.h"
 #include "log_stream.h"
 #include "wifi.h"
@@ -331,6 +332,7 @@ void app_main(void) {
 
   // Start services that work on any interface
   web_server_start(80);
+  nowplaying_forward_init();
   task_create_spiram(network_monitor_task, "net_mon", 4096, NULL, 5, NULL,
                      NULL);
 

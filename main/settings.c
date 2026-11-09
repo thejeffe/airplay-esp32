@@ -17,6 +17,7 @@ static const char *TAG = "settings";
 #define NVS_KEY_WIFI_SSID      "wifi_ssid"
 #define NVS_KEY_WIFI_PASSWORD  "wifi_pass"
 #define NVS_KEY_DEVICE_NAME    "device_name"
+#define NVS_KEY_NP_URL         "np_url"
 #define NVS_KEY_EQ_GAINS       "eq_gains"
 #define NVS_KEY_LED_BRIGHTNESS "led_bright"
 #define NVS_KEY_CHANNEL_MODE   "chan_mode"
@@ -836,5 +837,50 @@ settings_set_biamp_eq(const float gains_db[2][2][SETTINGS_WAY_BANDS]) {
   } else {
     ESP_LOGE(TAG, "Failed to save bi-amp EQ: %s", esp_err_to_name(err));
   }
+  return err;
+}
+
+// ---- Now-playing forward URL ----
+esp_err_t settings_get_nowplaying_url(char *url, size_t len) {
+  if (!url || len == 0) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  url[0] = '\0';
+  nvs_handle_t nvs;
+  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs);
+  if (err == ESP_OK) {
+    size_t size = len;
+    err = nvs_get_str(nvs, NVS_KEY_NP_URL, url, &size);
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+      return ESP_OK;
+    }
+  }
+#ifdef CONFIG_NOWPLAYING_FORWARD_URL
+  strlcpy(url, CONFIG_NOWPLAYING_FORWARD_URL, len);
+#endif
+  return ESP_OK;
+}
+
+esp_err_t settings_set_nowplaying_url(const char *url) {
+  if (!url || strlen(url) > SETTINGS_NOWPLAYING_URL_MAX) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (url[0] != '\0' && strncmp(url, "http://", 7) != 0 &&
+      strncmp(url, "https://", 8) != 0) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  nvs_handle_t nvs;
+  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs);
+  if (err != ESP_OK) {
+    return err;
+  }
+  err = nvs_set_str(nvs, NVS_KEY_NP_URL, url);
+  if (err == ESP_OK) {
+    err = nvs_commit(nvs);
+  }
+  nvs_close(nvs);
+  ESP_LOGI(TAG, "Now-playing URL %s: %s", err == ESP_OK ? "saved" : "not saved",
+           url[0] ? url : "(off)");
   return err;
 }

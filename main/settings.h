@@ -260,3 +260,10 @@ esp_err_t settings_get_biamp_eq(float gains_db[2][2][SETTINGS_WAY_BANDS]);
  * Save the bi-amp EQ gains.
  */
 esp_err_t settings_set_biamp_eq(const float gains_db[2][2][SETTINGS_WAY_BANDS]);
+
+// ---- Now-playing forward (album art + track info to e.g. Signinator) ----
+#define SETTINGS_NOWPLAYING_URL_MAX 150
+/** Base URL like "http://192.168.1.10:8080"; empty string = off. */
+esp_err_t settings_get_nowplaying_url(char *url, size_t len);
+/** Set the base URL (must start with http:// or https://, or be empty). */
+esp_err_t settings_set_nowplaying_url(const char *url);

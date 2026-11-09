@@ -43,6 +43,7 @@ set( SRC_FILES
     "buttons.c"
     "playback_control.c"
     "dacp_client.c"
+    "nowplaying_forward.c"
 )
 
 # Select audio output implementation at compile time. audio_output_common.c

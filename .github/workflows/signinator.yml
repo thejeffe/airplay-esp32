@@ -1,0 +1,50 @@
+name: Signinator build
+
+# Builds the ESP32-S3 receiver with the Signinator now-playing forwarder (config/sdkconfig.user.signinator)
+# for the "Marantz Stereo" box. A tag like signinator-v0.2.1-1 makes a GitHub Release that Lickety Split picks up:
+#   airplay-signinator-esp32s3-factory.bin  full image for a USB flash at offset 0
+#   airplay-signinator-esp32s3-ota.bin      app only, for updates over Wi-Fi (/api/ota/update)
+on:
+  push:
+    branches: [signinator-nowplaying]
+    tags: ["signinator-v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+
+      - name: Build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          command: >
+            idf.py -DSDKCONFIG_DEFAULTS="config/sdkconfig.defaults;config/sdkconfig.defaults.esp32s3;config/sdkconfig.user.signinator" build &&
+            cd build &&
+            esptool.py --chip esp32s3 merge_bin --format raw -o merged-firmware.bin $(cat flash_args) &&
+            mkdir -p ../out &&
+            cp merged-firmware.bin ../out/airplay-signinator-esp32s3-factory.bin &&
+            cp "$(python3 -c 'import json; print(json.load(open("project_description.json"))["app_bin"])')" ../out/airplay-signinator-esp32s3-ota.bin
+
+      - name: Check outputs
+        run: ls -l out && test -s out/airplay-signinator-esp32s3-factory.bin && test -s out/airplay-signinator-esp32s3-ota.bin
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: airplay-signinator-esp32s3
+          path: out/*.bin
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/signinator-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.bin
+          make_latest: true
+          generate_release_notes: true
